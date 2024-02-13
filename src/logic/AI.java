@@ -102,6 +102,8 @@ class Result{
  * class implement the AI to choose the next move of the Pacman
  */
 public class AI{
+	private static Set<BeliefState> explored = new HashSet<>();
+	
 	/**
 	 * function that compute the next action to do (among UP, DOWN, LEFT, RIGHT)
 	 * @param beliefState the current belief-state of the agent
@@ -110,7 +112,6 @@ public class AI{
 	 */
 	public static String findNextMove(BeliefState beliefState) {
 		PriorityQueue<BeliefState> frontier = new PriorityQueue<>(Comparator.comparingDouble(b -> b.compareTo(beliefState) + computeHeuristic(b)));
-		Set<BeliefState> explored = new HashSet<>();
 		Plans solution = new Plans();
         frontier.add(beliefState);
         BeliefState current = beliefState;
@@ -130,6 +131,7 @@ public class AI{
         	
         	explored.add(current);
         	Plans succ = current.extendsBeliefState();
+        	
         	
         	for(int i =0; i<succ.size(); i++) {
         		Result rslt = succ.getResult(i);
@@ -169,7 +171,7 @@ public class AI{
 	        for (int j = 0; j < numCols; j++) {
 	            char cellContent = beliefState.getMap(i, j);
 	            
-	            // Assuming 'Gomme.GOMME_CHAR' represents a gomme
+	            
 	            if (cellContent == typeOfGomme) {
 	            	int gommeRow = i;
 	            	int gommeCol = j;
@@ -181,42 +183,28 @@ public class AI{
 	        }
 	    }
 
-	    return minDistance;
+	    return Math.max(1, minDistance);
 	}
 	
-	private static double[] calculateNearestGhostDistance(BeliefState bfs) {
+	
+	private static double[] calculateGhostDistance(BeliefState bfs) {
 		int pacmanRow = bfs.getPacmanPosition().getRow();
 	    int pacmanCol = bfs.getPacmanPosition().getColumn();
-	    int idGhost = -1;
-	    int nbrOfGhosts = bfs.getNbrOfGhost();
-	    TreeSet<Position> ghostPositions = new TreeSet<>();
-	    TreeSet<Position> visibleGhosts = new TreeSet<>();
-	    for(int i = 0; i<nbrOfGhosts; i++) {
-	    	ghostPositions.addAll(bfs.getGhostPositions(i));
-	    }
-	    for(Position pos : ghostPositions) {
-	    	if(pacmanRow == pos.getRow() || pacmanCol == pos.getColumn()) {
-	    		visibleGhosts.add(pos);
-	    	}
-	    }
-
-	    // If there are no ghosts, return a large value to de-prioritize avoiding ghosts
-	    if (ghostPositions.isEmpty()) {
-	        return new double[] {0.0, (double)idGhost};
-	    }
+	    
+	    
+	    TreeSet<Position> ghost1Positions = new TreeSet<>();
+	    TreeSet<Position> ghost2Positions = new TreeSet<>();
+	    
+	    	ghost1Positions.addAll(bfs.getGhostPositions(0));
+	    	ghost2Positions.addAll(bfs.getGhostPositions(1));
 
 	    // Find the nearest ghost
-	    Position nearestGhost = visibleGhosts.isEmpty()? ghostPositions.first(): visibleGhosts.first();
-	    double distanceToNearestGhost = calculateDistance(pacmanRow, pacmanCol, nearestGhost.getRow(), nearestGhost.getColumn());
+	    double distanceToGhost1 = calculateDistance(pacmanRow, pacmanCol, ghost1Positions.getFirst().getRow(), ghost1Positions.getFirst().getColumn());
+	    double distanceToGhost2 = calculateDistance(pacmanRow, pacmanCol, ghost2Positions.getFirst().getRow(), ghost2Positions.getFirst().getColumn());
+
 	    
-	    for (int i = 0; i < nbrOfGhosts; i++) {
-	        TreeSet<Position> nearestghostPositions = bfs.getGhostPositions(i);
-	        if (nearestghostPositions.contains(nearestGhost)) {
-	            idGhost = i;
-	        }
-	    }
-	    System.out.println(distanceToNearestGhost);
-	    return new double[]{distanceToNearestGhost, (double) idGhost};
+	    
+	    return new double[]{distanceToGhost1, distanceToGhost2};
 	}
 	
 	private static double calculateDistance(int pacmanRow, int pacmanCol, int targetRow, int targetCol) {
@@ -230,17 +218,23 @@ public class AI{
 	    // Compute distances to various entities
 	    double distanceToNearestGomme = findNearestGomme(beliefState, pacmanRow, pacmanCol, '.');
 	    double distanceToNearestSuperGomme = findNearestGomme(beliefState, pacmanRow, pacmanCol, '*');
-	    double distanceToNearestGhost = calculateNearestGhostDistance(beliefState)[0];
+	    double distanceToGhost1 = calculateGhostDistance(beliefState)[0];
+	    double distanceToGhost2 = calculateGhostDistance(beliefState)[1];
+	    
 
 	    // Weights for different entities
-	    double weightGomme = 1.0;
-	    double weightSuperGomme = 10.0;
-	    double weightGhost = beliefState.getCompteurPeur((int)calculateNearestGhostDistance(beliefState)[1]) == 0? -60 : beliefState.getCompteurPeur((int)calculateNearestGhostDistance(beliefState)[1]);
+	    double weightGomme = beliefState.getNbrOfSuperGommes() == 0 ? Math.max(10.0, 60.0 - 5.0 * beliefState.getNbrOfGommes()) : 1.0;
+	    double weightSuperGomme = 5.0;
+	    double weightGhost1 = beliefState.getCompteurPeur(0) == 0? -60 : 1.5 * beliefState.getCompteurPeur(0);
+	    double weightGhost2 = beliefState.getCompteurPeur(1) == 0? -60 : 1.5 * beliefState.getCompteurPeur(1);
+	    double weightLife = beliefState.getNbrOfGommes()<= 50 && beliefState.getNbrOfSuperGommes() == 0? 
+	    		Math.max(200, 200.0 - 2.0 * beliefState.getNbrOfGommes()) : 300;
+	    
 	    
 	    // Combine distances with weights to form the heuristic value
 	    return weightGomme * distanceToNearestGomme +
 	           weightSuperGomme * distanceToNearestSuperGomme +
-	           weightGhost * distanceToNearestGhost + 10000 * (beliefState.getLife() == 0 ? 1: -1);
+	           (weightGhost1 / (distanceToGhost1 )) + (weightGhost2 / (distanceToGhost2)) + 
+	           weightLife * (beliefState.getLife() == 0 ? 1: -1);
 	}
-
 }
